@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% block title %}Proxies & Rate Limiting — Pincali ETL{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <h1>Proxies &amp; Rate Limiting</h1>
+    <div class="page-actions">
+        <span class="refresh-badge">Auto-refresh <span id="refresh-countdown">30s</span></span>
+    </div>
+</div>
+<script>autoRefresh(30);</script>
+
+{% if proxy_stats.stale %}
+<div class="card" style="margin-bottom:20px;border-color:var(--yellow);">
+    <span style="color:var(--yellow);font-weight:600;">⚠ No live worker data yet.</span>
+    <span style="font-size:12px;color:var(--text-dim);">
+        Showing this dashboard process's own idle proxy pool, not the scraper workers'.
+        A worker publishes real stats to Redis after its first request — if this persists,
+        check that <code class="mono">url_discovery_worker</code> / <code class="mono">detail_scraper_worker</code>
+        are running and can reach Redis.
+    </span>
+</div>
+{% endif %}
+
+<!-- KPI row -->
+{% if proxy_stats.quota_exceeded %}
+<div class="card" style="margin-bottom:20px;border:1px solid var(--red);background:color-mix(in srgb, var(--red) 8%, transparent);">
+    <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:20px;">🚫</span>
+        <div>
+            <strong style="color:var(--red);">Proxy account quota/bandwidth exceeded</strong>
+            <span style="color:var(--text-dim);font-size:13px;">
+                — {{ proxy_stats.quota_exceeded_reason or 'vendor reported a billing/quota limit' }},
+                first seen {{ proxy_stats.quota_exceeded_ago_s }}s ago.
+                All endpoints in this pool share the same account, so rotation cannot route
+                around this — check the vendor dashboard/billing, not this app.
+            </span>
+        </div>
+    </div>
+</div>
+{% endif %}
+<div class="grid grid-4" style="margin-bottom:20px;">
+    <div class="card stat-card" style="--stat-color:#38bdf8;--accent-glow:#38bdf811;">
+        <div class="stat-value">{{ proxy_stats.pool_size }}</div>
+        <div class="stat-label">Proxy Pool Size</div>
+        <div class="stat-sub">provider: {{ proxy_stats.provider }}</div>
+    </div>
+    <div class="card stat-card" style="--stat-color:#34d399;--accent-glow:#34d39911;">
+        <div class="stat-value">{{ healthy_count }}</div>
+        <div class="stat-label">Healthy Now</div>
+        <div class="stat-sub">available for rotation</div>
+    </div>
+    <div class="card stat-card" style="--stat-color:#f87171;--accent-glow:#f8717111;">
+        <div class="stat-value">{{ cooldown_count }}</div>
+        <div class="stat-label">In Cooldown</div>
+        <div class="stat-sub">skipped until healthy</div>
+    </div>
+    <div class="card stat-card" style="--stat-color:#fbbf24;--accent-glow:#fbbf2411;">
+        <div class="stat-value">{{ requeue_eta.still_cooling_down }}</div>
+        <div class="stat-label">Failed URLs Cooling Down</div>
+        <div class="stat-sub">{{ requeue_eta.eligible_now }} eligible for requeue now</div>
+    </div>
+</div>
+
+<!-- Currently live proxies -->
+<div class="card" style="margin-bottom:20px;">
+    <div class="section-title">
+        🟢 Live Now
+        <span class="count">{{ proxy_stats.endpoints | selectattr('in_flight', 'gt', 0) | list | length }} active request{{ 's' if (proxy_stats.endpoints | selectattr('in_flight', 'gt', 0) | list | length) != 1 else '' }}</span>
+    </div>
+    {% set live_endpoints = proxy_stats.endpoints | selectattr('in_flight', 'gt', 0) | list %}
+    {% if live_endpoints %}
+    <div class="scroll-x">
+    <table>
+        <thead>
+            <tr>
+                <th>Proxy ID</th>
+                <th>Host</th>
+                <th>Session</th>
+                <th>In-flight</th>
+                <th>Fetching</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for ep in live_endpoints %}
+            <tr>
+                <td class="mono">{{ ep.proxy_id }}</td>
+                <td class="mono">{{ ep.host }}</td>
+                <td class="mono">{{ ep.session }}</td>
+                <td><span class="badge badge-green"><span class="dot dot-green"></span>{{ ep.in_flight }}</span></td>
+                <td class="mono" style="max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ ep.last_url }}">{{ ep.last_url or '—' }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <div class="empty" style="padding:20px;">
+        <span style="font-size:13px;">No proxy has an in-flight request right now — either the scraper is idle, or requests are completing faster than the 30s refresh.</span>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Proxy pool detail -->
+<div class="card" style="margin-bottom:20px;">
+    <div class="section-title">
+        Proxy Pool Detail
+        <span class="count">{{ proxy_stats.pool_size }} endpoint{{ 's' if proxy_stats.pool_size != 1 else '' }}</span>
+    </div>
+    {% if proxy_stats.endpoints %}
+    <div class="scroll-x">
+    <table>
+        <thead>
+            <tr>
+                <th>Proxy ID</th>
+                <th>Host</th>
+                <th>Session</th>
+                <th>Status</th>
+                <th>Last Used</th>
+                <th>Last Result</th>
+                <th>Last Latency</th>
+                <th>Successes</th>
+                <th>Failures</th>
+                <th>Consecutive Fails</th>
+                <th>Cooldown Remaining</th>
+                <th>Requests Since Rotation</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for ep in proxy_stats.endpoints %}
+            <tr>
+                <td class="mono">{{ ep.proxy_id }}{% if ep.in_flight > 0 %} <span class="badge badge-green" style="margin-left:4px;">LIVE</span>{% endif %}</td>
+                <td class="mono">{{ ep.host }}</td>
+                <td class="mono">{{ ep.session }}</td>
+                <td>
+                    {% if ep.in_cooldown %}
+                        <span class="badge badge-red"><span class="dot dot-red"></span>Cooldown</span>
+                    {% else %}
+                        <span class="badge badge-green"><span class="dot dot-green"></span>Healthy</span>
+                    {% endif %}
+                </td>
+                <td class="mono">{% if ep.last_used_ago_s is not none %}{{ ep.last_used_ago_s }}s ago{% else %}never{% endif %}</td>
+                <td>
+                    {% if ep.last_outcome == 'success' %}
+                        <span class="badge badge-green">OK</span>
+                    {% elif ep.last_outcome == 'failed' %}
+                        <span class="badge badge-red">Failed</span>
+                    {% else %}
+                        <span style="color:var(--text-dim);">—</span>
+                    {% endif %}
+                </td>
+                <td class="mono">{% if ep.last_latency_ms is not none %}{{ ep.last_latency_ms }}ms{% else %}—{% endif %}</td>
+                <td style="color:var(--green);font-weight:600;">{{ ep.success_count }}</td>
+                <td class="{{ 'text-red' if ep.failure_count > 0 else 'text-sub' }}">{{ ep.failure_count }}</td>
+                <td class="mono">{{ ep.consecutive_failures }}</td>
+                <td class="mono">{% if ep.in_cooldown %}{{ ep.cooldown_remaining_s }}s{% else %}—{% endif %}</td>
+                <td class="mono text-dim">{{ ep.requests_since_rotation }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <div class="empty">
+        <div class="empty-icon">🌐</div>
+        No proxies configured — running direct (no-proxy) connections.<br>
+        <span style="font-size:12px;">Set <code class="mono">PINCALI_PROXY_LIST</code> (static) or <code class="mono">PROXY_GATEWAY_*</code> (gateway) in <code class="mono">.env</code>.</span>
+    </div>
+    {% endif %}
+</div>
+
+<div class="grid grid-2" style="margin-bottom:20px;">
+
+    <!-- Request throttling / rate limiting -->
+    <div class="card">
+        <div class="section-title">
+            Request Throttling &amp; Rate-Limit Protection
+        </div>
+        <div class="kv"><span class="kv-key">Per-domain delay between requests</span><span class="kv-val">{{ throttle_stats.rate_limit_delay_min_s }}s – {{ throttle_stats.rate_limit_delay_max_s }}s (randomized)</span></div>
+        <div class="kv"><span class="kv-key">Domain circuit-breaker threshold</span><span class="kv-val">{{ throttle_stats.circuit_failure_threshold }} failures / 5min</span></div>
+        <div class="kv"><span class="kv-key">Domain ban duration</span><span class="kv-val">{{ throttle_stats.circuit_ban_seconds }}s</span></div>
+        <div class="kv"><span class="kv-key">Max concurrent requests per proxy/session</span><span class="kv-val">{{ config.proxy_max_concurrent_per_session }}</span></div>
+        <div class="kv"><span class="kv-key">Global requests/sec ceiling</span><span class="kv-val">{% if config.proxy_global_rps_limit %}{{ config.proxy_global_rps_limit }}/s{% else %}unlimited{% endif %}</span></div>
+        <div class="kv"><span class="kv-key">In-request retry attempts on block</span><span class="kv-val">{{ config.proxy_max_retries_per_request }}</span></div>
+        <div class="kv"><span class="kv-key">Retry backoff base</span><span class="kv-val">{{ config.proxy_retry_backoff_base_seconds }}s (exponential + jitter)</span></div>
+
+        <div style="margin-top:18px;">
+            <div style="font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:10px;">
+                Currently throttled / banned domains
+            </div>
+            {% if throttle_stats.domains %}
+            <table>
+                <thead><tr><th>Domain</th><th>Failures (5min)</th><th>Status</th></tr></thead>
+                <tbody>
+                {% for d in throttle_stats.domains %}
+                <tr>
+                    <td class="mono">{{ d.domain }}</td>
+                    <td>{{ d.recent_failures_5min }}</td>
+                    <td>
+                        {% if d.banned %}
+                        <span class="badge badge-red">Banned {{ d.ban_remaining_s }}s</span>
+                        {% else %}
+                        <span class="badge badge-yellow">Watching</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty" style="padding:20px;"><span style="font-size:13px;">No domains currently throttled — everything's healthy.</span></div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Failed URL auto-requeue -->
+    <div class="card">
+        <div class="section-title">Failed URL Auto-Requeue</div>
+        <div class="kv"><span class="kv-key">Requeue delay after failure</span><span class="kv-val">{{ config.pincali_failed_url_requeue_after_hours }}h</span></div>
+        <div class="kv"><span class="kv-key">Max retries per URL</span><span class="kv-val">{{ config.pincali_max_retries_per_url }}</span></div>
+        <div class="kv"><span class="kv-key">Eligible for requeue right now</span><span class="kv-val" style="color:var(--green);">{{ requeue_eta.eligible_now }}</span></div>
+        <div class="kv"><span class="kv-key">Still cooling down (&lt; {{ config.pincali_failed_url_requeue_after_hours }}h since failure)</span><span class="kv-val" style="color:var(--yellow);">{{ requeue_eta.still_cooling_down }}</span></div>
+        <div class="kv"><span class="kv-key">Retry budget exhausted (permanent fail)</span><span class="kv-val" style="color:var(--red);">{{ requeue_eta.retry_budget_exhausted }}</span></div>
+        <div style="margin-top:16px;font-size:12px;color:var(--text-dim);line-height:1.6;">
+            A URL that fails scraping goes to <code class="mono">failed</code> and waits
+            <strong>{{ config.pincali_failed_url_requeue_after_hours }} hours</strong> before it's automatically
+            moved back to <code class="mono">pending</code> for another attempt — as long as it hasn't
+            used up its {{ config.pincali_max_retries_per_url }}-attempt retry budget. This runs
+            automatically at the start of every scraper pass, no manual action needed.
+        </div>
+    </div>
+
+</div>
+
+<div class="card">
+    <div class="section-title">Monitoring &amp; Logging</div>
+    <div style="font-size:13px;color:var(--text-dim);line-height:1.7;">
+        Every fetch now logs <code class="mono">proxy_id</code>, <code class="mono">provider</code>,
+        attempt number, and latency — check <code class="mono">logs/scraper.log</code> for lines like
+        <code class="mono">[Scraper] fetch OK url=... proxy=static-0 provider=static attempt=1/3 latency_ms=812</code>.
+        This page reads live per-worker snapshots published to Redis (see
+        <code class="mono">app/scraper/proxy_manager.py::_publish_stats_snapshot</code>), refreshed every 30s —
+        so it reflects the actual scraper workers, not this dashboard process.
+        The same data is available at <a href="/api/v1/scraper/proxy-stats" target="_blank" style="color:var(--accent);">/api/v1/scraper/proxy-stats</a>.
+    </div>
+</div>
+
+{% endblock %}

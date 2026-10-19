@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Scraper Errors — Pincali ETL{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <h1>Scraper Errors</h1>
+    <span class="sub">last 100</span>
+</div>
+
+<div class="card" style="padding:0;">
+{% if errors %}
+<div class="scroll-x">
+<table>
+    <thead>
+        <tr><th>ID</th><th>Run</th><th>Error Type</th><th>URL</th><th>Message</th><th>Time</th></tr>
+    </thead>
+    <tbody>
+    {% for e in errors %}
+    <tr>
+        <td class="mono" style="color:var(--text-sub);">{{ e.id }}</td>
+        <td class="mono" style="color:var(--text-dim);">{{ e.run_id or '—' }}</td>
+        <td><span class="badge badge-red">{{ e.error_type }}</span></td>
+        <td style="max-width:240px;">
+            {% if e.url %}
+            <a href="{{ e.url }}" target="_blank" class="mono" style="color:var(--accent);text-decoration:none;font-size:11px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ e.url }}">{{ e.url }}</a>
+            {% else %}<span style="color:var(--text-sub);">—</span>{% endif %}
+        </td>
+        <td style="font-size:12px;color:var(--red);max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ e.error_message }}">{{ e.error_message[:140] }}</td>
+        <td class="mono" style="color:var(--text-dim);font-size:11px;white-space:nowrap;">{{ e.created_at.strftime('%Y-%m-%d %H:%M') if e.created_at else '—' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<div class="empty"><div class="empty-icon">✅</div>No errors logged.</div>
+{% endif %}
+</div>
+{% endblock %}

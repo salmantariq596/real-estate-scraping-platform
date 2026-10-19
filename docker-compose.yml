@@ -1,0 +1,166 @@
+services:
+  # ─── Databases ───────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-pincali}
+      POSTGRES_USER: ${POSTGRES_USER:-pincali}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pincali} -d ${POSTGRES_DB:-pincali}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DB:-pincali}
+      MYSQL_USER: ${MYSQL_USER:-pincali}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-changeme}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - mysql
+
+  # ─── Redis ───────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ─── API ─────────────────────────────────────────────────
+  api:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_TYPE: ${DATABASE_TYPE:-postgresql}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-pincali}
+      POSTGRES_USER: ${POSTGRES_USER:-pincali}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      REDIS_URL: redis://redis:6379/0
+      MXN_TO_USD_RATE: ${MXN_TO_USD_RATE:-20.5}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SECRET_KEY: ${SECRET_KEY:-change-this-in-production}
+    volumes:
+      - .:/app
+      - logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ─── DB Migrator (runs once) ─────────────────────────────
+  migrator:
+    build: .
+    command: alembic upgrade head
+    environment:
+      DATABASE_TYPE: ${DATABASE_TYPE:-postgresql}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-pincali}
+      POSTGRES_USER: ${POSTGRES_USER:-pincali}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # ─── URL Discovery Worker ────────────────────────────────
+  url_discovery_worker:
+    build: .
+    command: python -m app.workers.url_discovery_worker
+    env_file:
+      - .env
+    environment:
+      DATABASE_TYPE: ${DATABASE_TYPE:-postgresql}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-pincali}
+      POSTGRES_USER: ${POSTGRES_USER:-pincali}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      REDIS_URL: redis://redis:6379/0
+      DISCOVERY_INTERVAL_SECONDS: ${DISCOVERY_INTERVAL_SECONDS:-3600}
+      DISCOVERY_MAX_PAGES_PER_FILTER: ${DISCOVERY_MAX_PAGES_PER_FILTER:-101}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # PATCH: proxy support
+      PINCALI_PROXY_LIST: ${PINCALI_PROXY_LIST:-}
+    volumes:
+      - .:/app
+      - logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ─── Detail Scraper Worker ───────────────────────────────
+  detail_scraper_worker:
+    build: .
+    command: python -m app.workers.detail_scraper_worker
+    env_file:
+      - .env
+    environment:
+      DATABASE_TYPE: ${DATABASE_TYPE:-postgresql}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-pincali}
+      POSTGRES_USER: ${POSTGRES_USER:-pincali}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      REDIS_URL: redis://redis:6379/0
+      PINCALI_CONCURRENCY: ${PINCALI_CONCURRENCY:-3}
+      PINCALI_HEADLESS: "true"
+      PINCALI_HTTP_FIRST: "true"
+      PINCALI_BLOCK_ASSETS: "true"
+      MXN_TO_USD_RATE: ${MXN_TO_USD_RATE:-20.5}
+      SCRAPER_BATCH_SIZE: ${SCRAPER_BATCH_SIZE:-50}
+      SCRAPER_POLL_INTERVAL: ${SCRAPER_POLL_INTERVAL:-10}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # PATCH: proxy + circuit breaker settings
+      PINCALI_PROXY_LIST: ${PINCALI_PROXY_LIST:-}
+      PINCALI_CIRCUIT_FAILURE_THRESHOLD: ${PINCALI_CIRCUIT_FAILURE_THRESHOLD:-15}
+      PINCALI_CIRCUIT_BAN_SECONDS: ${PINCALI_CIRCUIT_BAN_SECONDS:-120}
+    volumes:
+      - .:/app
+      - logs:/app/logs
+    shm_size: "512mb"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  mysql_data:
+  redis_data:
+  logs:

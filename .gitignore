@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+# Secrets & runtime
+.env
+logs/
+*.log
+# Data outputs
+pincali_all_scraped_pages/
+raw_data/
+*.csv
+*.jsonl

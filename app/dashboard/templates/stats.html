@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Statistics — Pincali ETL{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <h1>Platform Statistics</h1>
+</div>
+
+<div class="grid grid-4" style="margin-bottom:20px;">
+    <div class="card stat-card" style="--stat-color:#38bdf8;">
+        <div class="stat-value">{{ stats.total_listings | default(0) | format_number }}</div>
+        <div class="stat-label">Total Listings</div>
+    </div>
+    <div class="card stat-card" style="--stat-color:#34d399;">
+        <div class="stat-value">{{ stats.active_listings | default(0) | format_number }}</div>
+        <div class="stat-label">Active</div>
+    </div>
+    <div class="card stat-card" style="--stat-color:#fbbf24;">
+        <div class="stat-value">{{ stats.scraped_urls | default(0) | format_number }}</div>
+        <div class="stat-label">URLs Scraped</div>
+    </div>
+    <div class="card stat-card" style="--stat-color:#a78bfa;">
+        <div class="stat-value">
+            {% if stats.avg_price_usd is not none and stats.avg_price_usd %}
+                ${{ "{:,.0f}".format(stats.avg_price_usd) }}
+            {% else %}—{% endif %}
+        </div>
+        <div class="stat-label">Avg Price USD</div>
+    </div>
+</div>
+
+<div class="grid grid-3">
+    <div class="card">
+        <div class="section-title">By MLS Status</div>
+        {% if stats.listings_by_status %}
+        {% for status, count in stats.listings_by_status.items() %}
+        <div class="kv">
+            <span class="kv-key">
+                {% if status == 'Active' %}<span class="dot dot-green" style="margin-right:6px;"></span>{% endif %}
+                {{ status or 'Unknown' }}
+            </span>
+            <strong style="color:var(--accent);">{{ count | format_number }}</strong>
+        </div>
+        {% endfor %}
+        {% else %}<div class="empty">No data.</div>{% endif %}
+    </div>
+
+    <div class="card">
+        <div class="section-title">By Property Type</div>
+        {% if stats.listings_by_type %}
+        {% for ptype, count in stats.listings_by_type.items() %}
+        <div class="kv">
+            <span class="kv-key">
+                {% if ptype == 'A' %}A — Condo/Apt
+                {% elif ptype == 'B' %}B — House
+                {% elif ptype == 'E' %}E — Land/Lot
+                {% elif ptype == 'F' %}F — Commercial
+                {% elif ptype == 'H' %}H — Fractional
+                {% elif ptype == 'I' %}I — Multi-Family
+                {% else %}{{ ptype or 'Unknown' }}{% endif %}
+            </span>
+            <strong style="color:var(--accent);">{{ count | format_number }}</strong>
+        </div>
+        {% endfor %}
+        {% else %}<div class="empty">No data.</div>{% endif %}
+    </div>
+
+    <div class="card">
+        <div class="section-title">Top Cities</div>
+        {% if stats.listings_by_city %}
+        {% for city, count in stats.listings_by_city.items() %}
+        <div class="kv">
+            <span class="kv-key">{{ city | title }}</span>
+            <strong style="color:var(--accent);">{{ count | format_number }}</strong>
+        </div>
+        {% endfor %}
+        {% else %}<div class="empty">No data.</div>{% endif %}
+    </div>
+</div>
+
+<div class="grid grid-2" style="margin-top:20px;">
+    <div class="card">
+        <div class="section-title">URL Queue Status</div>
+        <div class="kv"><span class="kv-key">Pending</span><span class="kv-val" style="color:var(--yellow);">{{ stats.pending_urls | default(0) | format_number }}</span></div>
+        <div class="kv"><span class="kv-key">Scraped / Done</span><span class="kv-val" style="color:var(--green);">{{ stats.scraped_urls | default(0) | format_number }}</span></div>
+        <div class="kv"><span class="kv-key">Failed</span><span class="kv-val" style="color:var(--red);">{{ stats.failed_urls | default(0) | format_number }}</span></div>
+    </div>
+    <div class="card">
+        <div class="section-title">Quick Links</div>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-top:4px;">
+            <a href="/api/v1/listings" target="_blank" style="color:var(--accent);text-decoration:none;font-size:13px;font-family:var(--font-mono);">GET /api/v1/listings ↗</a>
+            <a href="/api/v1/scraper/runs" target="_blank" style="color:var(--accent);text-decoration:none;font-size:13px;font-family:var(--font-mono);">GET /api/v1/scraper/runs ↗</a>
+            <a href="/api/v1/scraper/status" target="_blank" style="color:var(--accent);text-decoration:none;font-size:13px;font-family:var(--font-mono);">GET /api/v1/scraper/status ↗</a>
+            <a href="/docs" target="_blank" style="color:var(--accent);text-decoration:none;font-size:13px;font-family:var(--font-mono);">Swagger UI /docs ↗</a>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

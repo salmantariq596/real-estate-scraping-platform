@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Listings — Pincali ETL{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <h1>Listings</h1>
+    <span class="sub">{{ total | format_number }} total</span>
+</div>
+
+<!-- Filter bar -->
+<form method="get" style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center;">
+    <input name="q" value="{{ q or '' }}" placeholder="Search city or name…"
+        style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:8px 14px;border-radius:8px;font-size:13px;font-family:var(--font-body);flex:1;min-width:200px;outline:none;">
+    <select name="mls_status"
+        style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:8px 12px;border-radius:8px;font-size:13px;font-family:var(--font-body);cursor:pointer;">
+        <option value="">All Statuses</option>
+        <option value="Active" {% if status_filter=='Active' %}selected{% endif %}>Active</option>
+        <option value="Sold" {% if status_filter=='Sold' %}selected{% endif %}>Sold</option>
+        <option value="Pending" {% if status_filter=='Pending' %}selected{% endif %}>Pending</option>
+        <option value="Cancelled" {% if status_filter=='Cancelled' %}selected{% endif %}>Cancelled</option>
+    </select>
+    <select name="property_type"
+        style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:8px 12px;border-radius:8px;font-size:13px;font-family:var(--font-body);cursor:pointer;">
+        <option value="">All Types</option>
+        <option value="A" {% if type_filter=='A' %}selected{% endif %}>A — Condo/Apt</option>
+        <option value="B" {% if type_filter=='B' %}selected{% endif %}>B — House</option>
+        <option value="E" {% if type_filter=='E' %}selected{% endif %}>E — Land/Lot</option>
+        <option value="F" {% if type_filter=='F' %}selected{% endif %}>F — Commercial</option>
+        <option value="H" {% if type_filter=='H' %}selected{% endif %}>H — Fractional</option>
+        <option value="I" {% if type_filter=='I' %}selected{% endif %}>I — Multi-Family</option>
+    </select>
+    <button type="submit" style="background:var(--accent);color:#000;font-weight:700;padding:8px 20px;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-family:var(--font-body);">Filter</button>
+    <a href="/admin/listings" style="background:var(--bg3);color:var(--text-dim);padding:8px 14px;border-radius:8px;text-decoration:none;font-size:13px;border:1px solid var(--border);">Clear</a>
+</form>
+
+<div class="card" style="padding:0;">
+{% if listings %}
+<div class="scroll-x">
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>External ID</th>
+            <th>Name</th>
+            <th>City / State</th>
+            <th>Type</th>
+            <th>Beds</th>
+            <th>Baths</th>
+            <th>Lot m²</th>
+            <th>Build m²</th>
+            <th>Parking</th>
+            <th>Pool</th>
+            <th>Price USD</th>
+            <th>Currency</th>
+            <th>Status</th>
+            <th>Agent</th>
+            <th>Updated</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for l in listings %}
+    <tr>
+        <td class="mono" style="color:var(--text-sub);">{{ l.id }}</td>
+        <td class="mono" style="color:var(--text-sub);font-size:11px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ l.external_id }}</td>
+        <td style="max-width:220px;">
+            <a href="/admin/listings/{{ l.id }}" class="row-link" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;" title="{{ l.name or '' }}">
+                {{ (l.name or 'N/A') | title | truncate(48) }}
+            </a>
+            {% if l.community %}
+            <div style="font-size:11px;color:var(--text-dim);margin-top:1px;">{{ l.community | title }}</div>
+            {% endif %}
+        </td>
+        <td>
+            <div>{{ l.city | title if l.city else '—' }}</div>
+            {% if l.state %}<div style="font-size:11px;color:var(--text-dim);">{{ l.state | title }}</div>{% endif %}
+        </td>
+        <td>
+            <span class="badge {% if l.property_type == 'A' %}badge-blue{% elif l.property_type == 'E' %}badge-yellow{% elif l.property_type == 'F' %}badge-purple{% else %}badge-gray{% endif %}">
+                {{ l.property_type | type_label if l.property_type else '—' }}
+            </span>
+        </td>
+        <td style="text-align:center;">{{ l.beds_total if l.beds_total is not none else '—' }}</td>
+        <td style="text-align:center;">
+            {% if l.baths_full is not none %}
+                {{ l.baths_full }}{% if l.baths_half %}<span style="color:var(--text-dim);font-size:11px;">+½</span>{% endif %}
+            {% else %}—{% endif %}
+        </td>
+        <td style="text-align:right;font-size:12px;">
+            {% if l.lot_size_m2 %}{{ "{:,.0f}".format(l.lot_size_m2) }}{% else %}—{% endif %}
+        </td>
+        <td style="text-align:right;font-size:12px;">
+            {% if l.construction_m2 %}{{ "{:,.0f}".format(l.construction_m2) }}{% else %}—{% endif %}
+        </td>
+        <td style="text-align:center;">{{ l.parking_spaces if l.parking_spaces is not none else '—' }}</td>
+        <td style="text-align:center;">
+            {% if l.pool %}<span style="color:var(--green);">✓</span>{% else %}<span style="color:var(--text-sub);">—</span>{% endif %}
+        </td>
+        <td style="font-weight:600;color:var(--accent);white-space:nowrap;">
+            {% if l.price_usd %}${{ "{:,.0f}".format(l.price_usd) }}{% else %}<span style="color:var(--text-sub);">—</span>{% endif %}
+        </td>
+        <td style="font-size:11px;color:var(--text-dim);">{{ l.original_currency or '—' }}</td>
+        <td>
+            {% if l.mls_status == 'Active' %}<span class="badge badge-green"><span class="dot dot-green"></span>Active</span>
+            {% elif l.mls_status == 'Sold' %}<span class="badge badge-red">Sold</span>
+            {% elif l.mls_status == 'Pending' %}<span class="badge badge-yellow">Pending</span>
+            {% else %}<span class="badge badge-gray">{{ l.mls_status or '?' }}</span>{% endif %}
+        </td>
+        <td style="font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim);">
+            {{ l.list_agent_name or '—' }}
+        </td>
+        <td class="mono" style="color:var(--text-dim);font-size:11px;white-space:nowrap;">
+            {{ l.updated_at.strftime('%Y-%m-%d %H:%M') if l.updated_at else '—' }}
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+
+<!-- Pagination -->
+<div style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-top:1px solid var(--border);">
+    <span style="color:var(--text-dim);font-size:13px;">Page {{ page }} of {{ pages }} &middot; {{ total | format_number }} listings</span>
+    <div style="display:flex;gap:8px;">
+        {% if page > 1 %}
+        <a href="?page={{ page - 1 }}&q={{ q or '' }}&mls_status={{ status_filter or '' }}&property_type={{ type_filter or '' }}"
+           style="background:var(--bg3);color:var(--text);padding:6px 14px;border-radius:7px;text-decoration:none;font-size:13px;border:1px solid var(--border);">← Prev</a>
+        {% endif %}
+        {% if page < pages %}
+        <a href="?page={{ page + 1 }}&q={{ q or '' }}&mls_status={{ status_filter or '' }}&property_type={{ type_filter or '' }}"
+           style="background:var(--accent);color:#000;font-weight:700;padding:6px 14px;border-radius:7px;text-decoration:none;font-size:13px;">Next →</a>
+        {% endif %}
+    </div>
+</div>
+
+{% else %}
+<div class="empty"><div class="empty-icon">🔍</div>No listings found. Try adjusting your filters.</div>
+{% endif %}
+</div>
+{% endblock %}

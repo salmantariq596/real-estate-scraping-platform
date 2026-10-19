@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Pincali ETL{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <h1>Dashboard</h1>
+    <div class="page-actions">
+        <span class="refresh-badge">Auto-refresh <span id="refresh-countdown">30s</span></span>
+    </div>
+</div>
+<script>autoRefresh(30);</script>
+
+<!-- KPI row -->
+<div class="grid grid-4" style="margin-bottom:20px;">
+    <div class="card stat-card" style="--stat-color:#38bdf8;--accent-glow:#38bdf811;">
+        <div class="stat-value">{{ stats.total_listings | default(0) | int | format_number }}</div>
+        <div class="stat-label">Total Listings</div>
+        <div class="stat-sub">{{ stats.active_listings | default(0) | format_number }} active</div>
+    </div>
+    <div class="card stat-card" style="--stat-color:#34d399;--accent-glow:#34d39911;">
+        <div class="stat-value">{{ stats.pending_urls | default(0) | int | format_number }}</div>
+        <div class="stat-label">Pending URLs</div>
+        <div class="stat-sub">{{ stats.scraped_urls | default(0) | format_number }} scraped</div>
+    </div>
+    <div class="card stat-card" style="--stat-color:#f87171;--accent-glow:#f8717111;">
+        <div class="stat-value">{{ stats.failed_urls | default(0) | int | format_number }}</div>
+        <div class="stat-label">Failed URLs</div>
+        <div class="stat-sub">{{ stats.recent_errors_24h | default(0) }} errors last 24h</div>
+    </div>
+    <div class="card stat-card" style="--stat-color:#fbbf24;--accent-glow:#fbbf2411;">
+        <div class="stat-value">
+            {% if stats.avg_price_usd %}${{ "{:,.0f}".format(stats.avg_price_usd) }}{% else %}—{% endif %}
+        </div>
+        <div class="stat-label">Avg Price USD</div>
+        <div class="stat-sub">active listings</div>
+    </div>
+</div>
+
+{% if proxy_summary.quota_exceeded %}
+<div class="card" style="margin-bottom:20px;border:1px solid var(--red);background:color-mix(in srgb, var(--red) 8%, transparent);">
+    <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:20px;">🚫</span>
+        <div>
+            <strong style="color:var(--red);">Proxy account quota/bandwidth exceeded</strong>
+            <span style="color:var(--text-dim);font-size:13px;">
+                — {{ proxy_summary.quota_exceeded_reason or 'vendor reported a billing/quota limit' }},
+                first seen {{ proxy_summary.quota_exceeded_ago_s }}s ago.
+                Rotating proxies will not fix this — check the vendor dashboard/billing.
+            </span>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Proxy & throttling summary -->
+<div class="card" style="margin-bottom:20px;">
+    <div class="section-title">
+        Proxy Pool &amp; Rate Limiting
+        <span class="tag mono" style="margin-left:4px;">{{ proxy_summary.provider }}</span>
+        <a href="/admin/proxies" style="margin-left:auto;font-size:12px;color:var(--accent);text-decoration:none;font-weight:500;">Full detail →</a>
+    </div>
+    <div class="grid grid-4">
+        <div class="kv" style="flex-direction:column;align-items:flex-start;border-bottom:none;">
+            <span class="kv-key">Pool size</span>
+            <span class="kv-val" style="font-size:20px;font-weight:700;color:var(--text);">{{ proxy_summary.pool_size }}</span>
+        </div>
+        <div class="kv" style="flex-direction:column;align-items:flex-start;border-bottom:none;">
+            <span class="kv-key">Healthy now</span>
+            <span class="kv-val" style="font-size:20px;font-weight:700;color:var(--green);">{{ proxy_summary.healthy_count }}</span>
+        </div>
+        <div class="kv" style="flex-direction:column;align-items:flex-start;border-bottom:none;">
+            <span class="kv-key">In cooldown</span>
+            <span class="kv-val {{ 'text-red' if proxy_summary.cooldown_count > 0 else 'text-sub' }}" style="font-size:20px;font-weight:700;">{{ proxy_summary.cooldown_count }}</span>
+        </div>
+        <div class="kv" style="flex-direction:column;align-items:flex-start;border-bottom:none;">
+            <span class="kv-key">Failed URLs awaiting requeue</span>
+            <span class="kv-val" style="font-size:20px;font-weight:700;color:var(--yellow);">{{ proxy_summary.requeue_cooling_down }}</span>
+        </div>
+    </div>
+</div>
+
+<!-- Main two-col -->
+<div class="grid grid-2" style="margin-bottom:20px;">
+
+    <!-- Latest listings -->
+    <div class="card">
+        <div class="section-title">
+            Latest Listings
+            <span class="count">{{ stats.total_listings | default(0) | format_number }} total</span>
+            <a href="/admin/listings" style="margin-left:auto;font-size:12px;color:var(--accent);text-decoration:none;font-weight:500;">View all →</a>
+        </div>
+        {% if recent_listings %}
+        <div class="scroll-x">
+        <table>
+            <thead><tr><th>#</th><th>Name</th><th>City / Type</th><th>Price</th><th>Status</th></tr></thead>
+            <tbody>
+            {% for l in recent_listings %}
+            <tr>
+                <td class="mono" style="color:var(--text-sub);">{{ l.id }}</td>
+                <td>
+                    <a href="/admin/listings/{{ l.id }}" class="row-link" style="display:block;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ (l.name or 'N/A') | title }}</a>
+                </td>
+                <td>
+                    <div style="color:var(--text);">{{ l.city | title if l.city else '—' }}</div>
+                    <div style="font-size:11px;color:var(--text-dim);margin-top:1px;">{{ l.property_type | type_label }}</div>
+                </td>
+                <td style="font-weight:600;color:var(--accent);">
+                    {% if l.price_usd %}${{ "{:,.0f}".format(l.price_usd) }}{% else %}<span style="color:var(--text-sub);">—</span>{% endif %}
+                </td>
+                <td>
+                    {% if l.mls_status == 'Active' %}<span class="badge badge-green"><span class="dot dot-green"></span>Active</span>
+                    {% elif l.mls_status == 'Sold' %}<span class="badge badge-red">Sold</span>
+                    {% elif l.mls_status == 'Pending' %}<span class="badge badge-yellow">Pending</span>
+                    {% else %}<span class="badge badge-gray">{{ l.mls_status or '?' }}</span>{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <div class="empty"><div class="empty-icon">🏠</div>No listings yet.</div>
+        {% endif %}
+    </div>
+
+    <!-- Recent scrape runs -->
+    <!-- <div class="card">
+        <div class="section-title">
+            Recent Scrape Runs
+            <a href="/admin/runs" style="margin-left:auto;font-size:12px;color:var(--accent);text-decoration:none;font-weight:500;">View all →</a>
+        </div>
+        {% if recent_runs %}
+        <table>
+            <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Scraped</th><th>+New /~Upd</th><th>Duration</th><th>Started</th></tr></thead>
+            <tbody>
+            {% for r in recent_runs %}
+            <tr>
+                <td class="mono" style="color:var(--text-sub);">{{ r.id }}</td>
+                <td>
+                    {% if r.run_type == 'detail' %}<span class="badge badge-blue">detail</span>
+                    {% elif r.run_type == 'discovery' %}<span class="badge badge-purple">discovery</span>
+                    {% else %}<span class="badge badge-gray">{{ r.run_type }}</span>{% endif %}
+                </td>
+                <td>
+                    {% if r.status == 'completed' %}<span class="badge badge-green"><span class="dot dot-green"></span>Done</span>
+                    {% elif r.status == 'running' %}<span class="badge badge-yellow"><span class="dot dot-yellow"></span>Running</span>
+                    {% elif r.status == 'failed' %}<span class="badge badge-red">Failed</span>
+                    {% else %}<span class="badge badge-gray">{{ r.status }}</span>{% endif %}
+                </td>
+                <td style="font-weight:500;">{{ r.urls_scraped | default(0) | format_number }}</td>
+                <td style="font-size:12px;">
+                    <span style="color:var(--green);font-weight:600;">+{{ r.listings_created | default(0) }}</span>
+                    <span style="color:var(--text-sub);margin:0 2px;">/</span>
+                    <span style="color:#60a5fa;">~{{ r.listings_updated | default(0) }}</span>
+                </td>
+                <td class="mono" style="color:var(--text-dim);font-size:11px;">
+                    {% if r.finished_at is not none and r.started_at is not none %}
+                        {{ ((r.finished_at - r.started_at).total_seconds() | int) }}s
+                    {% else %}—{% endif %}
+                </td>
+                <td class="mono" style="color:var(--text-dim);font-size:11px;">{{ r.started_at.strftime('%m/%d %H:%M') if r.started_at else '—' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty"><div class="empty-icon">⚙️</div>No runs yet.</div>
+        {% endif %}
+    </div>
+</div> -->
+
+<!-- Bottom row: property type + city breakdown -->
+<div class="grid grid-2">
+    <div class="card">
+        <div class="section-title">By Property Type</div>
+        {% if stats.listings_by_type %}
+        {% set total_for_types = [stats.total_listings | default(0) | int, 1] | max %}
+        {% for ptype, count in stats.listings_by_type.items() %}
+        {% set pct = ((count / total_for_types * 100) | int) %}
+        {% set pct = [pct, 100] | min %}
+        <div style="margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                <span style="font-size:13px;">
+                    {% if ptype == 'A' %}Condo / Apartment
+                    {% elif ptype == 'B' %}House / Single Family
+                    {% elif ptype == 'E' %}Land / Lot
+                    {% elif ptype == 'F' %}Commercial
+                    {% elif ptype == 'H' %}Fractional
+                    {% elif ptype == 'I' %}Multi-Family
+                    {% else %}{{ ptype or 'Unknown' }}{% endif %}
+                    <span class="mono" style="color:var(--text-sub);margin-left:6px;">{{ ptype or '?' }}</span>
+                </span>
+                <strong style="color:var(--accent);">{{ count | format_number }}</strong>
+            </div>
+            <div class="progress-track">
+                <div class="progress-fill" style="width:{{ pct }}%;"></div>
+            </div>
+        </div>
+        {% endfor %}
+        {% else %}<div class="empty">No data yet.</div>{% endif %}
+    </div>
+
+    <div class="card">
+        <div class="section-title">Top Cities</div>
+        {% if stats.listings_by_city %}
+        {% for city, count in stats.listings_by_city.items() %}
+        <div class="kv">
+            <span class="kv-key">{{ city | title }}</span>
+            <span class="kv-val" style="color:var(--accent);">{{ count | format_number }}</span>
+        </div>
+        {% endfor %}
+        {% else %}<div class="empty">No data yet.</div>{% endif %}
+    </div>
+</div>
+
+{% endblock %}

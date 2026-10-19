@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Scrape Runs — Pincali ETL{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <h1>Scrape Runs</h1>
+    <span class="sub">{{ total | format_number }} total runs</span>
+    <div class="page-actions">
+        <span class="refresh-badge">Auto-refresh <span id="refresh-countdown">20s</span></span>
+    </div>
+</div>
+<script>autoRefresh(20);</script>
+
+{% if runs %}
+<!-- Summary bar -->
+{% set completed = runs | selectattr('status', 'eq', 'completed') | list %}
+{% set running = runs | selectattr('status', 'eq', 'running') | list %}
+{% set failed = runs | selectattr('status', 'eq', 'failed') | list %}
+<div class="grid grid-4" style="margin-bottom:20px;">
+    <div class="card stat-card card-sm" style="--stat-color:#38bdf8;">
+        <div class="stat-value" style="font-size:28px;">{{ total | format_number }}</div>
+        <div class="stat-label">Total Runs</div>
+    </div>
+    <div class="card stat-card card-sm" style="--stat-color:#34d399;">
+        <div class="stat-value" style="font-size:28px;">{{ completed | length }}</div>
+        <div class="stat-label">Completed</div>
+    </div>
+    <div class="card stat-card card-sm" style="--stat-color:#fbbf24;">
+        <div class="stat-value" style="font-size:28px;">{{ running | length }}</div>
+        <div class="stat-label">Running</div>
+    </div>
+    <div class="card stat-card card-sm" style="--stat-color:#f87171;">
+        <div class="stat-value" style="font-size:28px;">{{ failed | length }}</div>
+        <div class="stat-label">Failed</div>
+    </div>
+</div>
+
+<div class="card" style="padding:0;">
+<div class="scroll-x">
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th style="max-width:200px;">Config / Combo</th>
+            <th>Discovered</th>
+            <th>Scraped</th>
+            <th>Failed URLs</th>
+            <th>New Listings</th>
+            <th>Updated</th>
+            <th>Errors</th>
+            <th>Duration</th>
+            <th>Started</th>
+            <th>Finished</th>
+            <th>Error Msg</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for r in runs %}
+    <tr>
+        <td class="mono" style="color:var(--text-sub);">{{ r.id }}</td>
+        <td>
+            {% if r.run_type == 'detail' %}<span class="badge badge-blue">detail</span>
+            {% elif r.run_type == 'discovery' %}<span class="badge badge-purple">discovery</span>
+            {% else %}<span class="badge badge-gray">{{ r.run_type }}</span>{% endif %}
+        </td>
+        <td>
+            {% if r.status == 'completed' %}<span class="badge badge-green"><span class="dot dot-green"></span>Completed</span>
+            {% elif r.status == 'running' %}<span class="badge badge-yellow"><span class="dot dot-yellow"></span>Running</span>
+            {% elif r.status == 'failed' %}<span class="badge badge-red">Failed</span>
+            {% else %}<span class="badge badge-gray">{{ r.status }}</span>{% endif %}
+        </td>
+        <td style="max-width:200px;font-size:11px;color:var(--text-sub);line-height:1.5;">
+            {% if r.meta %}
+                {% if r.run_type == 'discovery' and r.meta.get('filter_combos') %}
+                    {# Show top-3 filters by URL count for discovery runs #}
+                    {% set combos = r.meta['filter_combos'].items() | list | sort(attribute=1, reverse=True) %}
+                    {% for name, count in combos[:3] %}
+                        <span style="display:inline-block;background:rgba(139,92,246,.15);color:#a78bfa;border-radius:4px;padding:1px 5px;margin:1px 2px 1px 0;white-space:nowrap;">
+                            {{ name[:28] }}{% if name|length > 28 %}…{% endif %}
+                            <span style="opacity:.7;">({{ count }})</span>
+                        </span>
+                    {% endfor %}
+                    {% if combos|length > 3 %}
+                        <span style="color:var(--text-dim);font-size:10px;">+{{ combos|length - 3 }} more</span>
+                    {% endif %}
+                    {% if r.status == 'running' and r.meta.get('current_filter') %}
+                        <div style="margin-top:3px;color:var(--yellow);font-size:10px;">▶ {{ r.meta['current_filter'][:32] }}</div>
+                    {% endif %}
+                {% elif r.run_type == 'detail' and r.meta.get('filter_breakdown') %}
+                    {# Show top-3 source filters for detail runs #}
+                    {% set breakdown = r.meta['filter_breakdown'].items() | list | sort(attribute=1, reverse=true) %}
+                    {% for combo, count in breakdown[:3] %}
+                        <span style="display:inline-block;background:rgba(56,189,248,.12);color:#7dd3fc;border-radius:4px;padding:1px 5px;margin:1px 2px 1px 0;white-space:nowrap;">
+                            {{ combo[:28] }}{% if combo|length > 28 %}…{% endif %}
+                            <span style="opacity:.7;">({{ count }})</span>
+                        </span>
+                    {% endfor %}
+                    {% if breakdown|length > 3 %}
+                        <span style="color:var(--text-dim);font-size:10px;">+{{ breakdown|length - 3 }} more</span>
+                    {% endif %}
+                {% else %}
+                    <span style="color:var(--text-dim);">—</span>
+                {% endif %}
+            {% else %}
+                <span style="color:var(--text-dim);">—</span>
+            {% endif %}
+        </td>
+        <td style="font-weight:500;text-align:right;">
+            {% if r.run_type == 'discovery' %}
+                {{ r.urls_discovered | default(0) | format_number }}
+            {% else %}
+                <span style="color:var(--text-dim);">—</span>
+            {% endif %}
+        </td>
+        <td style="font-weight:500;text-align:right;">{{ r.urls_scraped | default(0) | format_number }}</td>
+        <td style="text-align:right;">
+            {% if r.urls_failed %}
+            <span style="color:var(--red);">{{ r.urls_failed | format_number }}</span>
+            {% else %}—{% endif %}
+        </td>
+        <td style="text-align:right;color:var(--green);font-weight:600;">
+            +{{ r.listings_created | default(0) | format_number }}
+        </td>
+        <td style="text-align:right;color:#60a5fa;font-weight:600;">
+            ~{{ r.listings_updated | default(0) | format_number }}
+        </td>
+        <td style="text-align:right;">
+            {% set err_count = error_counts.get(r.id, 0) %}
+            {% if err_count > 0 %}
+            <span style="color:var(--red);">{{ err_count }}</span>
+            {% else %}<span style="color:var(--text-sub);">0</span>{% endif %}
+        </td>
+        <td class="mono" style="color:var(--text-dim);font-size:11px;text-align:right;">
+            {% if r.finished_at is not none and r.started_at is not none %}
+                {% set secs = ((r.finished_at - r.started_at).total_seconds() | int) %}
+                {% if secs >= 3600 %}{{ (secs // 3600) }}h {{ ((secs % 3600) // 60) }}m
+                {% elif secs >= 60 %}{{ (secs // 60) }}m {{ secs % 60 }}s
+                {% else %}{{ secs }}s{% endif %}
+            {% else %}
+                {% if r.status == 'running' %}<span style="color:var(--yellow);">live</span>{% else %}—{% endif %}
+            {% endif %}
+        </td>
+        <td class="mono" style="color:var(--text-dim);font-size:11px;white-space:nowrap;">{{ r.started_at.strftime('%Y-%m-%d %H:%M') if r.started_at else '—' }}</td>
+        <td class="mono" style="color:var(--text-dim);font-size:11px;white-space:nowrap;">{{ r.finished_at.strftime('%Y-%m-%d %H:%M') if r.finished_at else '—' }}</td>
+        <td style="font-size:11px;color:var(--red);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ r.error_message or '' }}">
+            {{ r.error_message[:80] if r.error_message else '' }}
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+</div>
+
+{% else %}
+<div class="card"><div class="empty"><div class="empty-icon">⚙️</div>No scrape runs yet. Trigger a discovery + detail run to populate.</div></div>
+{% endif %}
+
+{% if pages > 1 %}
+<div style="display:flex;justify-content:center;gap:8px;margin-top:16px;align-items:center;flex-wrap:wrap;">
+    {% if page > 1 %}
+    <a href="?page=1&page_size={{ page_size }}" class="btn btn-sm" style="font-size:12px;">« First</a>
+    <a href="?page={{ page - 1 }}&page_size={{ page_size }}" class="btn btn-sm" style="font-size:12px;">← Prev</a>
+    {% endif %}
+    <span style="color:var(--text-sub);font-size:13px;padding:0 8px;">
+        Page {{ page }} of {{ pages }} &nbsp;·&nbsp; {{ total | format_number }} total runs
+    </span>
+    {% if page < pages %}
+    <a href="?page={{ page + 1 }}&page_size={{ page_size }}" class="btn btn-sm" style="font-size:12px;">Next →</a>
+    <a href="?page={{ pages }}&page_size={{ page_size }}" class="btn btn-sm" style="font-size:12px;">Last »</a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}
